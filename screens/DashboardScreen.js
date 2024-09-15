@@ -1,23 +1,62 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
-import { PieChart, BarChart, LineChart, ProgressChart } from 'react-native-chart-kit';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Button, ScrollView, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Appbar, Drawer } from 'react-native-paper';
 import { DrawerLayout } from 'react-native-gesture-handler';
+import Charts from './components/Charts';
+import { registerForPushNotificationsAsync, sendPushNotification } from './components/NotificationUtils';
 
-async function registerForPushNotificationsAsync() {
-  const { status } = await Notifications.getPermissionsAsync();
-  if (status !== 'granted') {
-    await Notifications.requestPermissionsAsync();
-  }
-}
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
+
 
 export default function DashboardScreen({ navigation }) {
   const drawer = useRef(null);
+  const [alertMessage, setAlertMessage] = useState(null);
+  const [expoPushToken, setExpoPushToken] = useState(null);
 
   useEffect(() => {
-    registerForPushNotificationsAsync();
+    async function setup() {
+      const token = await registerForPushNotificationsAsync();
+      setExpoPushToken(token);
+    }
+    setup();
 
+    const ws = new WebSocket("wss://af5e-45-118-107-172.ngrok-free.app");
+
+    ws.onopen = () => {
+      console.log('Connected to WebSocket server');
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.title && data.message) {
+        setAlertMessage(data.message);
+        if (expoPushToken) {
+          sendPushNotification(data.title, data.message); 
+        }
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error', error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket connection closed');
+    };
+
+    return () => ws.close();
+  }, [expoPushToken]);
+
+  useEffect(() => {
+    
     const subscription = Notifications.addNotificationReceivedListener(notification => {
       console.log('Notification Received:', notification);
     });
@@ -25,41 +64,11 @@ export default function DashboardScreen({ navigation }) {
     return () => subscription.remove();
   }, []);
 
-  const handleSendNotification = async () => {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'New Notification 📬',
-        body: 'This is a notification message.',
-        data: { someData: 'goes here' },
-      },
-      trigger: { seconds: 1 },
-    });
-  };
-
-  const pieChartData = [
-    { name: 'JavaScript', population: 30, color: '#ffcd56', legendFontColor: '#2C3E50', legendFontSize: 15 },
-    { name: 'Python', population: 50, color: '#36a2eb', legendFontColor: '#2C3E50', legendFontSize: 15 },
-    { name: 'Java', population: 20, color: '#ff6384', legendFontColor: '#2C3E50', legendFontSize: 15 },
-  ];
-
-  const barChartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [{ data: [20, 45, 28, 80, 99, 43] }],
-  };
-
-  const lineChartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    datasets: [{ data: [30, 40, 80, 55, 90, 100] }],
-  };
-
-  const progressChartData = {
-    labels: ['Progress'], 
-    data: [0.6],
-  };
 
   const renderDrawerContent = () => (
     <View style={styles.drawerContent}>
-      <Drawer.Section title="Navigation">
+      <Drawer.Section  style={styles.sidebarTitle}>
+        <Text style={styles.sidebarTitleText}>HSE.SHIELDIFY</Text>
         <Drawer.Item label="Dashboard" onPress={() => navigation.navigate('Dashboard')} />
         <Drawer.Item label="Employee Logs" onPress={() => navigation.navigate('EmployeeLogs')} />
         <Drawer.Item label="Settings" onPress={() => navigation.navigate('Settings')} />
@@ -82,72 +91,24 @@ export default function DashboardScreen({ navigation }) {
           <Appbar.Action icon="menu" onPress={() => drawer.current.openDrawer()} />
           <Appbar.Content title="Dashboard" />
         </Appbar.Header>
+        {alertMessage && <Text style={styles.alert}>Alert: {alertMessage}</Text>}
+        {/* <Button title="Send Test Notification" onPress={() => sendPushNotification('Test Title', 'Test message')} /> */}
 
         <ScrollView style={styles.scrollContainer}>
-          <Text style={styles.title}>Dashboard Charts</Text>
-
-          {/* Pie Chart */}
-          <PieChart
-            data={pieChartData}
-            width={Dimensions.get('window').width - 50}
-            height={220}
-            chartConfig={chartConfig}
-            accessor="population"
-            backgroundColor="transparent"
-            paddingLeft="15"
-            absolute
-          />
-
-          {/* Bar Chart */}
-          <BarChart
-            style={styles.chart}
-            data={barChartData}
-            width={Dimensions.get('window').width - 50}
-            height={220}
-            chartConfig={chartConfig}
-            verticalLabelRotation={30}
-          />
-
-          {/* Line Chart */}
-          <LineChart
-            style={styles.chart}
-            data={lineChartData}
-            width={Dimensions.get('window').width - 50}
-            height={220}
-            chartConfig={chartConfig}
-          />
-
-          {/* Progress Chart */}
-          <ProgressChart
-            data={progressChartData}
-            width={Dimensions.get('window').width - 50}
-            height={220}
-            chartConfig={chartConfig}
-            strokeWidth={16}
-            radius={32}
-          />
+          <Charts />
         </ScrollView>
 
         {/* Footer */}
-        <View style={styles.footer}>
+        {/* <View style={styles.footer}>
           <TouchableOpacity style={styles.notificationButton} onPress={handleSendNotification}>
             <Text style={styles.notificationText}>Send Notification</Text>
           </TouchableOpacity>
-        </View>
+        </View> */}
       </View>
     </DrawerLayout>
   );
 }
 
-const chartConfig = {
-  backgroundGradientFrom: '#f3f3f3',
-  backgroundGradientTo: '#ececec',
-  color: (opacity = 1) => `rgba(26, 188, 156, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(44, 62, 80, ${opacity})`,
-  strokeWidth: 2,
-  barPercentage: 0.6,
-  useShadowColorFromDataset: false,
-};
 
 const styles = StyleSheet.create({
   drawerContent: {
@@ -189,15 +150,32 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  sidebarTitle: {
+
+  },
+  sidebarTitleText: {
+    padding: 20,
+    color: '#2C3E50',
+
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
   logoutButton: {
     backgroundColor: '#E74C3C',
     padding: 10,
     borderRadius: 5,
     marginTop: 10,
+    marginRight:10,
   },
   logoutText: {
     color: '#fff',
     textAlign: 'center',
     fontWeight: 'bold',
+  },
+  alert: {
+    color: '#E74C3C',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    margin: 10,
   },
 });
